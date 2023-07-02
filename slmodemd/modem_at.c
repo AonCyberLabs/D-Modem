@@ -136,6 +136,7 @@ static int process_A(struct modem *m, char *p, int *len)
 {
 	int ret;
 	AT_DBG("AT A command...\n");
+	memset(m->dial_string, 0, strlen(m->dial_string));
 	ret = modem_answer(m);
 	if (ret)
 		return -1;
