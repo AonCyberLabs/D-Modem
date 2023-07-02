@@ -1,0 +1,7 @@
+*.o
+.idea
+pjsip.install
+slmodemd/.build_profile
+d-modem
+slmodemd
+modem_test

@@ -136,6 +136,7 @@ struct device_struct {
 static char  inbuf[4096];
 static char outbuf[4096];
 
+static pid_t pid;
 
 /*
  *    ALSA 'driver'
@@ -626,7 +627,7 @@ static int socket_start (struct modem *m)
 		exit(-1);
 	}
 
-	pid_t pid = fork();
+	pid = fork();
 	if (pid == -1) {
 		perror("fork");
 		exit(-1);
@@ -635,7 +636,13 @@ static int socket_start (struct modem *m)
 		char str[16];
 		snprintf(str,sizeof(str),"%d",sockets[0]);
 		close(sockets[1]);
-		execl(modem_exec,modem_exec,m->dial_string,str,NULL);
+
+		ret = execl(modem_exec,modem_exec,m->dial_string,str,NULL);
+		if (ret == -1) {
+			ERR("prog: %s\n", modem_exec);
+			perror("execl");
+			exit(-1);
+		}
 	} else {
 		close(sockets[0]);
 		dev->fd = sockets[1];
@@ -645,8 +652,6 @@ static int socket_start (struct modem *m)
 		ret = write(dev->fd, outbuf, ret);
 		DBG("done delay thing\n");
 		if (ret < 0) {
-			close(dev->fd);
-			dev->fd = -1;
 			return ret;
 		}
 		dev->delay = ret/2;
@@ -658,9 +663,8 @@ static int socket_stop (struct modem *m)
 {
 	struct device_struct *dev = m->dev_data;
 	DBG("socket_stop...\n");
-	close(dev->fd);
-	dev->fd = -1;
-	wait(NULL); // for exec'ed child
+	DBG("kill -%d %d\n", SIGTERM, pid);
+	kill(pid, SIGTERM);	// terminate exec'ed child
 	return 0;
 }
 
@@ -758,6 +762,8 @@ static int mdm_device_release(struct device_struct *dev)
 static int socket_device_setup(struct device_struct *dev, const char *dev_name)
 {
 	memset(dev,0,sizeof(*dev));
+	unsigned int pos = strlen(dev_name)-1;
+	dev->num = atoi(&dev_name[pos]);
 	return 0;
 }
 
@@ -969,10 +975,6 @@ static int modem_run(struct modem *m, struct device_struct *dev)
 			}
 
 			modem_process(m,inbuf,outbuf,count);
-			if (dev->fd == -1) {
-				DBG("closed connection to child socket process\n");
-				continue;
-			}
 			count = device_write(dev,outbuf,count);
 			if(count < 0) {
 				ERR("dev write: %s\n",strerror(errno));
@@ -1112,6 +1114,7 @@ int modem_main(const char *dev_name)
 
 	signal(SIGINT, mark_termination);
 	signal(SIGTERM, mark_termination);
+	signal(SIGCHLD, SIG_IGN);
 
 #ifdef SLMODEMD_USER
 	if (need_realtime) {
